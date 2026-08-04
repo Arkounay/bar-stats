@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beyond All Replays</title>
+<!-- Absolute paths: client routes such as /replays/<id> are served the app
+     shell, so a relative src would resolve against that path and fetch HTML. -->
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <h1>Beyond All Replays</h1>
+  </div>
+  <nav class="nav-tabs" id="nav-tabs" hidden>
+    <button type="button" class="nav-tab" data-page="replays" aria-current="page">Replays</button>
+    <button type="button" class="nav-tab" data-page="dashboard">Dashboard</button>
+  </nav>
+  <div class="topbar-status" id="index-status" hidden>
+    <div class="progress" role="progressbar" aria-label="Indexing replays">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    <span class="status-text" id="status-text"></span>
+  </div>
+  <div class="topbar-actions">
+    <button type="button" class="btn btn-quiet" id="rescan-btn" hidden>Rescan</button>
+    <button type="button" class="btn btn-quiet" id="settings-btn" hidden>Settings</button>
+    <button type="button" class="btn btn-icon" id="theme-btn" aria-label="Toggle light or dark theme">
+      <span id="theme-icon">◐</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- First run: pick the replay folder. -->
+  <section class="setup" id="setup" hidden>
+    <div class="setup-card">
+      <h2>Where are your replays?</h2>
+      <p class="setup-lead">
+        Beyond All Reason writes a <code>.sdfz</code> replay for every match you play.
+        Point this app at that folder and it will read the statistics out of them.
+      </p>
+
+      <div id="suggestions-block">
+        <h3 class="setup-heading">Found on this machine</h3>
+        <ul class="suggestions" id="suggestions"></ul>
+      </div>
+
+      <div class="setup-manual">
+        <h3 class="setup-heading">Or enter the path yourself</h3>
+        <form class="path-form" id="path-form">
+          <input type="text" id="path-input" spellcheck="false"
+                 placeholder="C:\Program Files\Beyond-All-Reason\data\demos"
+                 aria-label="Replay folder path">
+          <button type="submit" class="btn btn-primary">Use this folder</button>
+        </form>
+        <p class="form-error" id="path-error" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main browser: replay list on the left, detail on the right. -->
+  <div class="browser" id="browser" hidden>
+    <aside class="list-pane">
+      <div class="list-header">
+        <input type="search" id="search" placeholder="Filter by map or player…"
+               aria-label="Filter replays" spellcheck="false">
+        <p class="list-count" id="list-count"></p>
+      </div>
+      <!-- Scroll container is separate from the list so the list can be sized
+           to the full row count while only the visible rows exist. -->
+      <div class="list-scroll" id="replay-scroll">
+        <ol class="replay-list" id="replay-list"></ol>
+      </div>
+    </aside>
+
+    <section class="detail-pane" id="detail-pane" aria-live="polite">
+      <div class="empty-state" id="empty-state">
+        <p>Select a replay to see its statistics.</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- Aggregate record across the whole folder. -->
+  <div class="dashboard" id="dashboard" hidden>
+    <div class="dashboard-inner" id="dashboard-inner"></div>
+  </div>
+</main>
+
+<!-- Settings dialog: replay folder and refresh behaviour. -->
+<div class="modal-backdrop" id="settings-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <header class="modal-head">
+      <h2 id="settings-title">Settings</h2>
+      <button type="button" class="btn btn-icon" id="settings-close" aria-label="Close settings">✕</button>
+    </header>
+
+    <section class="modal-section">
+      <h3 class="setup-heading">Replay folder</h3>
+      <p class="modal-current" id="settings-current"></p>
+      <ul class="suggestions" id="settings-suggestions"></ul>
+      <form class="path-form" id="settings-path-form">
+        <input type="text" id="settings-path-input" spellcheck="false" aria-label="Replay folder path">
+        <button type="submit" class="btn btn-primary">Use folder</button>
+      </form>
+      <p class="form-error" id="settings-error" hidden></p>
+    </section>
+
+    <section class="modal-section">
+      <h3 class="setup-heading">Your player name</h3>
+      <div class="field-row">
+        <input type="text" id="player-name-input" spellcheck="false"
+               placeholder="e.g. Arkounay" aria-label="Your in-game player name">
+        <button type="button" class="btn btn-primary" id="player-name-save">Save</button>
+      </div>
+      <p class="field-note">
+        Used to mark which matches you won and to build the dashboard.
+        It must match your in-game name exactly.
+      </p>
+      <div id="player-name-suggest"></div>
+      <label class="toggle" style="margin-top:12px">
+        <input type="checkbox" id="highlight-self-input">
+        <span>Highlight my line automatically</span>
+      </label>
+    </section>
+
+    <section class="modal-section">
+      <h3 class="setup-heading">Watching for new replays</h3>
+      <div class="radio-list" id="watch-mode" role="radiogroup" aria-labelledby="settings-title"></div>
+    </section>
+
+    <section class="modal-section modal-meta">
+      <dl id="settings-meta"></dl>
+    </section>
+  </div>
+</div>
+
+<script src="/chart.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
