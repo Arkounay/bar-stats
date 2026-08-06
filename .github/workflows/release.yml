@@ -38,11 +38,13 @@ jobs:
             os="${target%/*}"; arch="${target#*/}"
             ext=""; [ "$os" = "windows" ] && ext=".exe"
 
-            rm -f cmd/barreplays/*.syso
+            rm -f cmd/*/*.syso
             if [ "$os" = "windows" ]; then
               archflag="-64"
               [ "$arch" = "arm64" ] && archflag="-64 -arm"
-              goversioninfo $archflag -o "cmd/barreplays/resource_windows_${arch}.syso" versioninfo.json
+              for c in barreplays barstats-desktop; do
+                goversioninfo $archflag -o "cmd/$c/resource_windows_${arch}.syso" versioninfo.json
+              done
             fi
 
             # Pure Go: no cgo, so every target cross-compiles from one runner.
@@ -50,17 +52,28 @@ jobs:
               go build -trimpath -ldflags "-s -w" \
               -o "build/barstats$ext" ./cmd/barreplays
 
+            # The desktop flavour is the same server shown in a chromeless
+            # application window. On Windows it links as a GUI binary so that
+            # double-clicking it does not leave a console window behind.
+            desktopflags="-s -w"
+            [ "$os" = "windows" ] && desktopflags="-s -w -H windowsgui"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "$desktopflags" \
+              -o "build/barstats-desktop$ext" ./cmd/barstats-desktop
+
             # Shipped as archives rather than bare executables: browsers and
             # Windows Defender treat a directly-downloaded .exe far more
-            # aggressively than the same file inside an archive.
+            # aggressively than the same file inside an archive. Both flavours
+            # travel together, so a user who dislikes one has the other to hand
+            # without a second download.
             if [ "$os" = "windows" ]; then
-              (cd build && zip -q "../dist/barstats-$os-$arch.zip" "barstats$ext")
+              (cd build && zip -q "../dist/barstats-$os-$arch.zip" "barstats$ext" "barstats-desktop$ext")
             else
-              tar -czf "dist/barstats-$os-$arch.tar.gz" -C build "barstats$ext"
+              tar -czf "dist/barstats-$os-$arch.tar.gz" -C build "barstats$ext" "barstats-desktop$ext"
             fi
             rm -rf build
           done
-          rm -f cmd/barreplays/*.syso
+          rm -f cmd/*/*.syso
           ls -lh dist
 
       - name: Checksums

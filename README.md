@@ -16,7 +16,19 @@ and serves a page on `127.0.0.1`.
 ## Install
 
 Download from [Releases](https://github.com/Arkounay/bar-stats/releases),
-extract, and run it. Your browser opens at `http://127.0.0.1:8730`.
+extract, and run it.
+
+Each download holds the same app in two flavours — run whichever you prefer:
+
+| | |
+|---|---|
+| `barstats-desktop` | Opens as a standalone window. Closing the window quits. |
+| `barstats` | Opens a tab at `http://127.0.0.1:8730` and keeps serving after you close it. |
+
+The desktop flavour borrows an installed Chromium browser (Chrome, Brave,
+Vivaldi, Edge, …) to draw its window, so it stays a small download rather than
+bundling a second browser. With none of those installed it falls back to opening
+a normal browser tab, and `-browser` asks for that on purpose.
 
 **On Windows you almost certainly want `barstats-windows-amd64.zip`** — that is
 the build for a normal 64-bit PC. Only take `windows-arm64` if you know you have
@@ -37,8 +49,9 @@ seconds; after that it is instant.
 Then set your player name in Settings to unlock win/loss marks and the
 dashboard.
 
-Flags: `-port` (default 8730, `0` picks a free one), `-no-open` to skip opening
-a browser.
+Flags: `-port` (default 8730, `0` picks a free one); `-no-open` on `barstats` to
+skip opening a browser, `-browser` on `barstats-desktop` to use a browser tab
+instead of a window.
 
 Every release ships `SHA256SUMS.txt`, and each asset's SHA-256 is listed on the
 release page, so a download can be verified against what CI built from this
@@ -51,6 +64,10 @@ and JavaScript, embedded into the binary.
 
 ```sh
 go build -ldflags "-s -w" -o barstats ./cmd/barreplays
+
+# The desktop flavour. On Windows add -H windowsgui to the ldflags so the
+# application does not carry a console window behind it.
+go build -ldflags "-s -w" -o barstats-desktop ./cmd/barstats-desktop
 ```
 
 ## Why
@@ -128,13 +145,15 @@ need the map's world dimensions from the map archive.
 ## Layout
 
 ```
-cmd/barreplays     entrypoint: config, HTTP server, browser launch
-cmd/inspect        dumps one replay to the terminal — decoder debugging
-internal/demo      the decoder. No I/O beyond an io.Reader; no knowledge of HTTP
-internal/config    settings persistence + replay-folder detection
-internal/gamefiles reads map previews out of the installed game's archives
-internal/index     folder scan, two-phase indexing, on-disk cache
-internal/server    HTTP API, view models, embedded web UI
+cmd/barreplays        entrypoint, browser flavour
+cmd/barstats-desktop  entrypoint, standalone-window flavour
+cmd/inspect           dumps one replay to the terminal — decoder debugging
+internal/app          startup shared by both entrypoints, and how each shows the UI
+internal/demo         the decoder. No I/O beyond an io.Reader; no knowledge of HTTP
+internal/config       settings persistence + replay-folder detection
+internal/gamefiles    reads map previews out of the installed game's archives
+internal/index        folder scan, two-phase indexing, on-disk cache
+internal/server       HTTP API, view models, embedded web UI
 ```
 
 ### Two-phase indexing
