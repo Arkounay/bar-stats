@@ -71,13 +71,15 @@ func (ix *Index) watchByPolling(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	last := ix.fingerprint()
+	w := ix.newWatchState()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			last = ix.rescanIfChanged(ctx, last)
+			w.check(ctx)
+		case <-w.settled:
+			w.check(ctx)
 		}
 	}
 }
@@ -104,8 +106,8 @@ func (ix *Index) watchByEvents(ctx context.Context) error {
 
 	// A nil channel blocks forever, so the timer is only selected on once an
 	// event has actually scheduled it.
-	var settle <-chan time.Time
-	last := ix.fingerprint()
+	var quiet <-chan time.Time
+	w := ix.newWatchState()
 
 	for {
 		select {
@@ -123,7 +125,7 @@ func (ix *Index) watchByEvents(ctx context.Context) error {
 			// Restart the quiet period on every event, so a match being
 			// written produces one rescan after it finishes rather than
 			// hundreds while it runs.
-			settle = time.After(quietPeriod)
+			quiet = time.After(quietPeriod)
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -131,27 +133,64 @@ func (ix *Index) watchByEvents(ctx context.Context) error {
 			}
 			log.Printf("watch error: %v", err)
 
-		case <-settle:
-			settle = nil
-			last = ix.rescanIfChanged(ctx, last)
+		case <-quiet:
+			quiet = nil
+			w.check(ctx)
+
+		case <-w.settled:
+			w.check(ctx)
 
 		case <-safetyNet.C:
-			last = ix.rescanIfChanged(ctx, last)
+			w.check(ctx)
 		}
 	}
 }
 
-// rescanIfChanged rescans when the folder's fingerprint has moved, returning
-// the fingerprint to compare against next time.
-func (ix *Index) rescanIfChanged(ctx context.Context, last uint64) uint64 {
-	current := ix.fingerprint()
-	if current == last {
-		return last
+// watchState is what a watcher carries between checks, whatever triggered
+// them.
+type watchState struct {
+	ix *Index
+	// last is the fingerprint the folder had when it was last acted on.
+	last uint64
+	// settled fires when the earliest replay still inside its settle window
+	// becomes readable. It is what makes a finished match appear promptly: the
+	// game's final write triggers a check while the file is still too fresh to
+	// read, and that write is the last thing the folder will do, so this timer
+	// is the only thing left that will come back for it.
+	settled <-chan time.Time
+}
+
+func (ix *Index) newWatchState() *watchState {
+	w := &watchState{ix: ix}
+	var settling time.Duration
+	w.last, settling = ix.fingerprint()
+	w.arm(settling)
+	return w
+}
+
+// arm schedules the next look at a file that is still settling, or clears the
+// timer when nothing is waiting.
+func (w *watchState) arm(settling time.Duration) {
+	w.settled = nil
+	if settling > 0 {
+		// The margin covers a coarse filesystem timestamp: firing a hair early
+		// would only find the file still ineligible and drop it for good.
+		w.settled = time.After(settling + time.Second)
 	}
-	ix.Pending()
-	if err := ix.Scan(ctx); err != nil && !errors.Is(err, context.Canceled) {
+}
+
+// check rescans when the folder's fingerprint has moved, and re-arms the
+// settle timer either way.
+func (w *watchState) check(ctx context.Context) {
+	current, settling := w.ix.fingerprint()
+	w.arm(settling)
+	if current == w.last {
+		return
+	}
+	w.ix.Pending()
+	if err := w.ix.Scan(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("automatic rescan failed: %v", err)
-		return last // retry on the next tick
+		return // keep the old fingerprint, so the next check retries
 	}
-	return current
+	w.last = current
 }

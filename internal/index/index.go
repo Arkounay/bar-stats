@@ -163,7 +163,7 @@ func (ix *Index) Scan(ctx context.Context) error {
 	}
 	defer ix.scanMu.Unlock()
 
-	paths, err := listDemos(ix.dir)
+	paths, _, err := listDemos(ix.dir)
 	if err != nil {
 		ix.setProgress(Progress{Phase: PhaseIdle})
 		return err
@@ -324,27 +324,35 @@ func (ix *Index) setProgress(p Progress) {
 }
 
 // fingerprint summarises the folder's eligible replays. Any change to the set,
-// or to a file's size or timestamp, changes the result.
-func (ix *Index) fingerprint() uint64 {
-	files, err := listDemos(ix.dir)
+// or to a file's size or timestamp, changes the result. The duration is how
+// long until the folder is worth fingerprinting again even if nothing else
+// happens; see [listDemos].
+func (ix *Index) fingerprint() (uint64, time.Duration) {
+	files, settling, err := listDemos(ix.dir)
 	if err != nil {
-		return 0
+		return 0, 0
 	}
 	h := fnv.New64a()
 	for _, f := range files {
 		fmt.Fprintf(h, "%s|%d|%d\n", f.path, f.size, f.modTime.UnixNano())
 	}
-	return h.Sum64()
+	return h.Sum64(), settling
 }
 
 // settleTime is how long a replay file must go untouched before it is read.
 //
 // The game writes to the demo throughout the match, so a file modified moments
-// ago is still being appended to: its statistics chunks are not there yet and
-// its gzip stream is incomplete. Waiting for it to go quiet avoids parsing a
-// half-written match — and keeps the watcher from re-reading a live match on
+// ago may still be being appended to: its statistics chunks are not there yet
+// and its gzip stream is incomplete. Waiting for it to go quiet avoids parsing
+// a half-written match — and keeps the watcher from re-reading a live match on
 // every tick.
-const settleTime = 30 * time.Second
+//
+// It is kept short because it is the floor on how soon a finished match can
+// appear, and the watcher now waits it out precisely rather than rediscovering
+// the file on some later tick. A file caught mid-write anyway is not a
+// correctness problem: it fails to parse or parses thin, and the write that
+// completes it changes the fingerprint and triggers another read.
+const settleTime = 10 * time.Second
 
 // demoFile is a replay file and the metadata the index needs about it.
 //
@@ -361,19 +369,33 @@ type demoFile struct {
 // non-recursively.
 //
 // Empty and still-being-written files are skipped rather than reported as
-// failures; a later rescan picks them up once the match has finished.
-func listDemos(dir string) ([]demoFile, error) {
+// failures. The returned duration is how long until the earliest skipped file
+// clears [settleTime], or zero if none was skipped: a file written as a match
+// ends is invisible here for a few seconds, and the write that produced it is
+// the last event the folder will ever emit, so without this the caller would
+// have nothing left to wake it up and the replay would sit unlisted until some
+// unrelated tick.
+func listDemos(dir string) ([]demoFile, time.Duration, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	var out []demoFile
+	var (
+		out      []demoFile
+		settling time.Duration
+	)
 	for _, e := range entries {
 		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), demo.Ext) {
 			continue
 		}
 		info, err := e.Info()
-		if err != nil || info.Size() == 0 || time.Since(info.ModTime()) < settleTime {
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+		if left := settleTime - time.Since(info.ModTime()); left > 0 {
+			if settling == 0 || left < settling {
+				settling = left
+			}
 			continue
 		}
 		out = append(out, demoFile{
@@ -382,7 +404,7 @@ func listDemos(dir string) ([]demoFile, error) {
 			modTime: info.ModTime(),
 		})
 	}
-	return out, nil
+	return out, settling, nil
 }
 
 // forEach runs fn over items on a bounded worker pool. Decompression is
