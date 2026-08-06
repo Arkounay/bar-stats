@@ -5,7 +5,8 @@
 //
 //	[0, 352)          fileHeader
 //	[352, +ScriptSize)  start script (plain-text TDF)
-//	                  demo stream    (raw network packets — skipped entirely)
+//	                  demo stream    (raw network packets — only the head is read,
+//	                                  for the team colours the game broadcasts)
 //	                  winning ally teams (one byte per winning ally team)
 //	                  player statistics  (PlayerStatElemSize bytes each)
 //	                  team statistics    (int32 count per team, then samples)

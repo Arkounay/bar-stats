@@ -119,7 +119,7 @@ A `.sdfz` is a gzip-compressed Spring/Recoil demo file:
 ```
 [0, 352)   header — engine version, game ID, start time, chunk sizes
            start script — plain-text TDF: map, players, teams, ally teams, colours
-           demo stream — raw network packets (skipped entirely)
+           demo stream — raw network packets (only the head is read)
            winning ally teams
            player statistics — 20 bytes each: mouse, keys, command counts
            team statistics — the time series
@@ -131,9 +131,11 @@ damage totals, and seven `int32` unit counts. The engine samples every 15
 seconds, and every value is a running total — per-minute rates are derived by
 differencing consecutive samples.
 
-**The demo stream is never parsed.** Everything shown comes from the header, the
-start script and the trailing statistics, which is what keeps a full index to
-seconds rather than minutes.
+**The demo stream is almost never parsed.** Every statistic comes from the
+header, the start script and the trailing chunks, which is what keeps a full
+index to seconds rather than minutes. The one exception is the first megabyte of
+packets, searched for the colours the game broadcasts as the match loads — see
+[A note on colour](#a-note-on-colour).
 
 Three facts drive much of the design:
 
@@ -143,8 +145,8 @@ Three facts drive much of the design:
 - **A zero-length `.sdfz` is a match in progress** — the game creates the file at
   match start.
 - **The game appends to the demo throughout the match**, so a file touched moments
-  ago is still being written. Files are left alone until untouched for 30s, which
-  stops a live match being parsed half-written.
+  ago may still be being written. Files are left alone until untouched for 10s,
+  which stops a live match being parsed half-written.
 
 Start positions are *not* available: BAR runs with `startpostype=2` ("choose in
 game"), so the start script carries no coordinates. They exist only as
@@ -197,6 +199,14 @@ Events are debounced by a 3-second quiet period; without it a single match would
 trigger a rescan per flush. Rescans are non-destructive: the index keeps serving
 its current records until the new pass has a complete set to swap in.
 
+A finished match needs one more thing to appear promptly. The write that
+finalises the demo is the last event the folder will ever produce, and the
+rescan it triggers arrives while the file is still inside its 10-second settle
+window — finding nothing. So the scan also reports when the earliest file it
+skipped becomes readable, and the watcher waits exactly that long before looking
+again. Without it a replay would not surface until some later tick, up to the
+2-minute safety net away.
+
 ### Map previews
 
 Previews come out of the installed game, so they work offline and match what the
@@ -234,6 +244,13 @@ moves to hover emphasis and the roster.
 **In-game colours** are available as an opt-in toggle — they are what you
 actually saw in the match, at the cost of those guarantees, since teammates are
 often near-identical and some are unreadable against the chart surface.
+
+They do not come from the start script. BAR ignores the `rgbcolor` the lobby
+writes there — matchmaking hands every team the same placeholder — and assigns
+its own from a palette as the match loads. That gadget broadcasts the result as
+a LuaRules message expressly so replay readers can recover it, which is why the
+head of the demo stream is worth reading and the script's colours are only a
+fallback.
 
 ## Tests
 
