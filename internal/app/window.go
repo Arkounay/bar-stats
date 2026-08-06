@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"barreplays/internal/config"
 )
@@ -14,6 +15,12 @@ import (
 // remembers the size and position in its profile from then on, so this is a
 // starting point rather than a policy.
 const initialWindowSize = "1400,900"
+
+// windowStartupGrace is how long a window must survive before its exit is
+// taken to mean the user closed it. Below this it is read as a failure to
+// launch; a user cannot realistically open and dismiss the window inside it,
+// and if they somehow do, the cost is a browser tab they did not ask for.
+const windowStartupGrace = 5 * time.Second
 
 // Window opens the UI as a chromeless application window.
 //
@@ -34,7 +41,7 @@ const initialWindowSize = "1400,900"
 func Window(ctx context.Context, url string) <-chan struct{} {
 	browser := findBrowser()
 	if browser == "" {
-		log.Print("no Chrome or Edge installation found; opening the default browser instead")
+		log.Print("no Chromium-based browser found; opening the default browser instead")
 		return Browser(ctx, url)
 	}
 	profile, err := windowProfileDir()
@@ -57,12 +64,25 @@ func Window(ctx context.Context, url string) <-chan struct{} {
 		return Browser(ctx, url)
 	}
 
+	started := time.Now()
 	dismissed := make(chan struct{})
 	go func() {
-		defer close(dismissed)
-		if err := cmd.Wait(); err != nil {
+		err := cmd.Wait()
+		// Starting the process only means it was forked; the browser can still
+		// fail once it is running — no display to open on, a sandbox that
+		// forbids the profile directory, a missing library. Treating that as
+		// the user closing the window would take the server down with it, and
+		// the application would appear to flash and vanish. A window that dies
+		// this fast never opened, so fall back as if it had never started.
+		if lifetime := time.Since(started); lifetime < windowStartupGrace {
+			log.Printf("the application window closed after %v (%v); opening the default browser instead", lifetime.Round(time.Millisecond), err)
+			launchBrowser(url)
+			return
+		}
+		if err != nil {
 			log.Printf("application window exited: %v", err)
 		}
+		close(dismissed)
 	}()
 	// Ctrl-C at the terminal should take the window with it, rather than
 	// leaving an orphan pointing at a server that is going away.
@@ -92,9 +112,16 @@ func windowProfileDir() (string, error) {
 	return dir, nil
 }
 
+// browserLookup and launchBrowser are indirected so tests can supply a
+// stand-in browser and observe the fallback without opening a real one.
+var (
+	browserLookup = browserCandidates
+	launchBrowser = openBrowser
+)
+
 // findBrowser returns the first installed Chromium-based browser, or "" if
 // there is none.
-func findBrowser() string { return firstInstalled(browserCandidates()) }
+func findBrowser() string { return firstInstalled(browserLookup()) }
 
 // firstInstalled returns the first candidate that is really on this machine.
 // A bare name is looked up on PATH; anything else is a full path that only

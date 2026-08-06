@@ -27,8 +27,13 @@ Each download holds the same app in two flavours — run whichever you prefer:
 
 The desktop flavour borrows an installed Chromium browser (Chrome, Brave,
 Vivaldi, Edge, …) to draw its window, so it stays a small download rather than
-bundling a second browser. With none of those installed it falls back to opening
-a normal browser tab, and `-browser` asks for that on purpose.
+bundling a second browser. If it cannot find or start one it falls back to
+opening a normal browser tab, and `-browser` asks for that on purpose.
+
+On Linux that means a browser installed from a distribution package, from the
+vendor's own `.deb`/`.rpm`, or under `/opt`. A browser installed through Flatpak
+or Snap is sandboxed away from the profile directory the window needs, so those
+take the fallback and open a tab instead.
 
 **On Windows you almost certainly want `barstats-windows-amd64.zip`** — that is
 the build for a normal 64-bit PC. Only take `windows-arm64` if you know you have

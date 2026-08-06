@@ -8,6 +8,6 @@ import "context"
 // user who closes it may only be navigating away and can return to the address
 // whenever they like.
 func Browser(ctx context.Context, url string) <-chan struct{} {
-	go openBrowser(url)
+	go launchBrowser(url)
 	return nil
 }
