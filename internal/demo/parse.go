@@ -123,11 +123,8 @@ func parseStream(r io.Reader, full bool) (*Replay, error) {
 		return replay, nil
 	}
 
-	// The demo stream is the bulk of the file and holds the raw network
-	// packets. Every statistic we surface is in the trailing chunks, so it is
-	// decompressed and thrown away rather than parsed.
-	if _, err := io.CopyN(io.Discard, r, int64(h.DemoStreamSize)); err != nil {
-		return nil, fmt.Errorf("skip demo stream: %w", err)
+	if err := readDemoStream(r, int64(h.DemoStreamSize), replay); err != nil {
+		return nil, err
 	}
 
 	if err := readWinners(r, &h, replay); err != nil {
@@ -140,6 +137,32 @@ func parseStream(r io.Reader, full bool) (*Replay, error) {
 		return nil, err
 	}
 	return replay, nil
+}
+
+// colorScanBytes bounds how much of the demo stream is held in memory to look
+// for the colour broadcast. The gadget sends it while the match loads, inside
+// the first few kilobytes of packets, so a megabyte is a wide margin — and a
+// small price next to decompressing the stream, which happens either way.
+const colorScanBytes = 1 << 20
+
+// readDemoStream consumes the demo stream, keeping only the team colours the
+// game broadcast near its start.
+//
+// Every statistic we surface lives in the trailing chunks, not here, so the
+// stream is decompressed and thrown away — but it has to be decompressed to
+// reach them, and the head of it is the only record of what colours the
+// players actually saw. See [applyAutoColors].
+func readDemoStream(r io.Reader, size int64, replay *Replay) error {
+	head := min(size, colorScanBytes)
+	buf := make([]byte, head)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return fmt.Errorf("read demo stream: %w", err)
+	}
+	if _, err := io.CopyN(io.Discard, r, size-head); err != nil {
+		return fmt.Errorf("skip demo stream: %w", err)
+	}
+	applyAutoColors(replay, buf)
+	return nil
 }
 
 // readWinners decodes the winning ally team list and marks the winning teams.

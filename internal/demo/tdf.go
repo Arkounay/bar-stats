@@ -157,30 +157,3 @@ func (s *tdfSection) numberedChildren(prefix string) []*tdfSection {
 		out = append(out, c)
 	}
 }
-
-// rgbHex converts Spring's "0.65098 0.69020 0.40392" float triple to a CSS hex
-// colour. It returns "" when the value is absent or malformed.
-func rgbHex(v string) string {
-	parts := strings.Fields(v)
-	if len(parts) < 3 {
-		return ""
-	}
-	var out strings.Builder
-	out.WriteByte('#')
-	const hexDigits = "0123456789abcdef"
-	for _, p := range parts[:3] {
-		f, err := strconv.ParseFloat(p, 64)
-		if err != nil {
-			return ""
-		}
-		n := int(f*255 + 0.5)
-		if n < 0 {
-			n = 0
-		} else if n > 255 {
-			n = 255
-		}
-		out.WriteByte(hexDigits[n>>4])
-		out.WriteByte(hexDigits[n&0x0f])
-	}
-	return out.String()
-}

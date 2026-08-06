@@ -12,7 +12,7 @@ import (
 // cacheVersion is bumped whenever the cached shape or the decoding that
 // produced it changes, so an old cache is discarded and rebuilt rather than
 // serving results the current code would not produce.
-const cacheVersion = 3
+const cacheVersion = 4
 
 // cacheFile is the on-disk form of the index.
 type cacheFile struct {
