@@ -4,9 +4,9 @@
 // that window is closed.
 //
 // On Windows it is linked as a GUI binary, so double-clicking it opens the
-// application and nothing else — no console window behind it. That also means
-// there is nowhere for a startup failure to be printed, so those are reported
-// in a dialog; see fatal.
+// application and nothing else — no console window behind it. That leaves the
+// log stream and any startup failure with nowhere to go, so both are given
+// somewhere; see diagnostics_windows.go.
 package main
 
 import (
@@ -19,6 +19,8 @@ func main() {
 	port := flag.Int("port", app.DefaultPort, "port to listen on (0 picks a free one)")
 	browser := flag.Bool("browser", false, "open in the default browser instead of an application window")
 	flag.Parse()
+
+	startLogging()
 
 	ui := app.Window
 	if *browser {

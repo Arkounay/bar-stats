@@ -58,6 +58,10 @@ Flags: `-port` (default 8730, `0` picks a free one); `-no-open` on `barstats` to
 skip opening a browser, `-browser` on `barstats-desktop` to use a browser tab
 instead of a window.
 
+The desktop build has no console to print to on Windows, so it writes what it
+would have said — which browser it found, why it fell back to a tab, which port
+it settled on — to `barstats-desktop.log` in the cache folder shown in Settings.
+
 Every release ships `SHA256SUMS.txt`, and each asset's SHA-256 is listed on the
 release page, so a download can be verified against what CI built from this
 source.

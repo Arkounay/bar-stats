@@ -72,12 +72,11 @@ func TestFirstInstalledResolvesBareNamesOnPath(t *testing.T) {
 // the application would appear to flash and vanish.
 func TestWindowFallsBackWhenTheBrowserDiesOnStartup(t *testing.T) {
 	// A "browser" that exits the instant it starts, the way a confined one does.
-	useBrowserCandidates(t, []string{buildQuitter(t, t.TempDir())})
+	quitter := buildQuitter(t, t.TempDir())
 	fellBack := make(chan string, 1)
-	useLaunchBrowser(t, func(url string) { fellBack <- url })
 
 	const url = "http://127.0.0.1:1/"
-	dismissed := Window(t.Context(), url)
+	dismissed := openWindow(t.Context(), url, quitter, func(u string) { fellBack <- u })
 
 	select {
 	case got := <-fellBack:
@@ -95,21 +94,23 @@ func TestWindowFallsBackWhenTheBrowserDiesOnStartup(t *testing.T) {
 	}
 }
 
-// useBrowserCandidates substitutes the installed-browser list for one test.
-func useBrowserCandidates(t *testing.T, candidates []string) {
-	t.Helper()
-	prev := browserLookup
-	browserLookup = func() []string { return candidates }
-	t.Cleanup(func() { browserLookup = prev })
-}
+// TestWindowFallsBackWithNoBrowserInstalled covers the other way the window
+// never opens, which must reach the same fallback.
+func TestWindowFallsBackWithNoBrowserInstalled(t *testing.T) {
+	fellBack := make(chan string, 1)
+	const url = "http://127.0.0.1:1/"
 
-// useLaunchBrowser substitutes the fallback for one test, so exercising it does
-// not open a real browser on the machine running the tests.
-func useLaunchBrowser(t *testing.T, fn func(string)) {
-	t.Helper()
-	prev := launchBrowser
-	launchBrowser = fn
-	t.Cleanup(func() { launchBrowser = prev })
+	if dismissed := openWindow(t.Context(), url, "", func(u string) { fellBack <- u }); dismissed != nil {
+		t.Error("returned a dismissal channel with no browser to open a window with")
+	}
+	select {
+	case got := <-fellBack:
+		if got != url {
+			t.Errorf("fell back to %q, want %q", got, url)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("never fell back with no browser installed")
+	}
 }
 
 // buildQuitter compiles a stand-in browser that exits the moment it starts,

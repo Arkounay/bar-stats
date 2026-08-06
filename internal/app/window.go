@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -36,32 +38,21 @@ const windowStartupGrace = 5 * time.Second
 // the window in a process we own, so closing it ends the process, which is
 // what makes the window's lifetime the application's lifetime.
 //
-// Falls back to the default browser when no Chromium is installed, so the
-// desktop build always ends up showing something.
+// Falls back to the default browser whenever the window cannot be opened or
+// does not survive being opened, so the desktop build always shows something.
 func Window(ctx context.Context, url string) <-chan struct{} {
-	browser := findBrowser()
-	if browser == "" {
-		log.Print("no Chromium-based browser found; opening the default browser instead")
-		return Browser(ctx, url)
-	}
-	profile, err := windowProfileDir()
-	if err != nil {
-		log.Printf("could not prepare the window profile (%v); opening the default browser instead", err)
-		return Browser(ctx, url)
-	}
+	return openWindow(ctx, url, firstInstalled(browserCandidates()), openBrowser)
+}
 
-	cmd := exec.Command(browser,
-		"--app="+url,
-		"--user-data-dir="+profile,
-		"--window-size="+initialWindowSize,
-		// A private profile is a first run every time it is created, and the
-		// prompts that come with one have no place in an application window.
-		"--no-first-run",
-		"--no-default-browser-check",
-	)
-	if err := cmd.Start(); err != nil {
-		log.Printf("could not open the application window (%v); opening the default browser instead", err)
-		return Browser(ctx, url)
+// openWindow is [Window] with the two things it takes from the machine — which
+// browser to drive, and where to fall back to — passed in, so a test can stand
+// in for both.
+func openWindow(ctx context.Context, url, browser string, fallback func(string)) <-chan struct{} {
+	cmd, err := startWindow(ctx, url, browser)
+	if err != nil {
+		log.Printf("%v; opening the default browser instead", err)
+		go fallback(url)
+		return nil
 	}
 
 	started := time.Now()
@@ -76,7 +67,7 @@ func Window(ctx context.Context, url string) <-chan struct{} {
 		// this fast never opened, so fall back as if it had never started.
 		if lifetime := time.Since(started); lifetime < windowStartupGrace {
 			log.Printf("the application window closed after %v (%v); opening the default browser instead", lifetime.Round(time.Millisecond), err)
-			launchBrowser(url)
+			fallback(url)
 			return
 		}
 		if err != nil {
@@ -84,16 +75,35 @@ func Window(ctx context.Context, url string) <-chan struct{} {
 		}
 		close(dismissed)
 	}()
-	// Ctrl-C at the terminal should take the window with it, rather than
-	// leaving an orphan pointing at a server that is going away.
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = cmd.Process.Kill()
-		case <-dismissed:
-		}
-	}()
 	return dismissed
+}
+
+// startWindow launches browser as an application window pointed at url.
+func startWindow(ctx context.Context, url, browser string) (*exec.Cmd, error) {
+	if browser == "" {
+		return nil, errors.New("no Chromium-based browser found")
+	}
+	profile, err := windowProfileDir()
+	if err != nil {
+		return nil, fmt.Errorf("could not prepare the window profile (%w)", err)
+	}
+
+	// Binding the window to the context makes Ctrl-C at the terminal take the
+	// window with it, rather than leaving an orphan pointing at a server that
+	// is going away.
+	cmd := exec.CommandContext(ctx, browser,
+		"--app="+url,
+		"--user-data-dir="+profile,
+		"--window-size="+initialWindowSize,
+		// A private profile is a first run every time it is created, and the
+		// prompts that come with one have no place in an application window.
+		"--no-first-run",
+		"--no-default-browser-check",
+	)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("could not open the application window (%w)", err)
+	}
+	return cmd, nil
 }
 
 // windowProfileDir is where the window's browser profile lives. It is kept
@@ -112,20 +122,9 @@ func windowProfileDir() (string, error) {
 	return dir, nil
 }
 
-// browserLookup and launchBrowser are indirected so tests can supply a
-// stand-in browser and observe the fallback without opening a real one.
-var (
-	browserLookup = browserCandidates
-	launchBrowser = openBrowser
-)
-
-// findBrowser returns the first installed Chromium-based browser, or "" if
-// there is none.
-func findBrowser() string { return firstInstalled(browserLookup()) }
-
-// firstInstalled returns the first candidate that is really on this machine.
-// A bare name is looked up on PATH; anything else is a full path that only
-// counts if a file is actually there.
+// firstInstalled returns the first candidate that is really on this machine,
+// or "" if none of them are. A bare name is looked up on PATH; anything else
+// is a full path that only counts if a file is actually there.
 func firstInstalled(candidates []string) string {
 	for _, path := range candidates {
 		if path == "" {

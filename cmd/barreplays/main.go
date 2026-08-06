@@ -20,7 +20,7 @@ func main() {
 
 	ui := app.Browser
 	if *noOpen {
-		ui = nil
+		ui = app.None
 	}
 	if err := app.Run(*port, ui); err != nil {
 		log.Fatal(err)

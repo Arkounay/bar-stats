@@ -31,6 +31,10 @@ const DefaultPort = 8730
 // reopened freely, and quitting because it went away would be wrong.
 type UI func(ctx context.Context, url string) <-chan struct{}
 
+// None opens nothing, leaving the user to visit the address themselves. The
+// server runs until it is interrupted.
+func None(context.Context, string) <-chan struct{} { return nil }
+
 // Run serves the UI and blocks until it is dismissed, the process is
 // interrupted, or serving fails.
 func Run(port int, ui UI) error {
@@ -71,11 +75,6 @@ func Run(port int, ui UI) error {
 		log.Printf("first run: choose a replay folder in the browser")
 	}
 
-	var dismissed <-chan struct{}
-	if ui != nil {
-		dismissed = ui(ctx, url)
-	}
-
 	errc := make(chan error, 1)
 	go func() {
 		err := srv.Serve(ln)
@@ -85,22 +84,23 @@ func Run(port int, ui UI) error {
 		errc <- err
 	}()
 
+	// Serving starts before the interface is opened. Finding a browser and
+	// starting it takes a moment, and none of that work should stand between
+	// the request it produces and something ready to answer it.
+	dismissed := ui(ctx, url)
+
 	select {
 	case err := <-errc:
 		return err
 	case <-dismissed:
-		log.Print("window closed, shutting down")
-		return shutdown(srv)
+		log.Print("interface dismissed, shutting down")
 	case <-ctx.Done():
 		log.Print("shutting down")
-		return shutdown(srv)
 	}
-}
 
-func shutdown(srv *http.Server) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return srv.Shutdown(ctx)
+	return srv.Shutdown(shutdownCtx)
 }
 
 // listen binds the loopback interface only — this serves local game files and
