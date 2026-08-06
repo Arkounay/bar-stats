@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package app
 
 import (
 	"log"
@@ -8,8 +8,8 @@ import (
 	"runtime"
 )
 
-// browse opens url in the default browser.
-func browse(url string) {
+// openBrowser opens url in the default browser.
+func openBrowser(url string) {
 	opener := "xdg-open"
 	if runtime.GOOS == "darwin" {
 		opener = "open"
