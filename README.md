@@ -8,6 +8,10 @@ window shows is already in those files, sitting on your disk. This reads them
 and gives you the whole history: economy and combat over time, per player, for
 every match you have ever played.
 
+There is more in a replay than the graph window ever showed. Each match opens
+with its map, marked with where every player started and which factory they
+opened with — read back out of the orders the players actually gave.
+
 No account, no upload, no network access. It reads the files you already have
 and serves a page on `127.0.0.1`.
 
