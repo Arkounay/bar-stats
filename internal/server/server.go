@@ -59,7 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.handleSettings)
 	mux.HandleFunc("POST /api/config", s.handleSetConfig)
 	mux.HandleFunc("POST /api/rescan", s.handleRescan)
-	mux.HandleFunc("GET /api/maps/{name}/preview.png", s.handleMapPreview)
+	mux.HandleFunc("GET /api/maps/{name}/preview", s.handleMapPreview)
 	mux.HandleFunc("GET /api/metrics", s.handleMetrics)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/replays", s.handleReplays)
@@ -293,18 +293,21 @@ func (s *Server) handleMapPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no game files")
 		return
 	}
-	png, err := games.MapPreview(r.PathValue("name"))
+	// ?full=1 asks for the large, correctly-proportioned image; the default
+	// stays the small thumbnail the replay list draws by the hundred.
+	full := r.URL.Query().Get("full") == "1"
+	preview, err := games.MapPreview(r.PathValue("name"), full)
 	if err != nil {
 		// A missing preview is ordinary — the UI just shows a placeholder.
 		writeError(w, http.StatusNotFound, "no preview for that map")
 		return
 	}
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Type", preview.ContentType)
 	// Previews only change when the game is updated, and the process is
 	// restarted for that, so they are safe to hold for the session.
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(png)
+	_, _ = w.Write(preview.Data)
 }
 
 // handleRescan re-reads the folder, picking up replays played since startup.

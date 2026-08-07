@@ -24,8 +24,17 @@ import (
 	"sync"
 )
 
-// thumbnailPrefix is where the game keeps its per-map lobby previews.
-const thumbnailPrefix = "minimapthumbnail/"
+// The game keeps two per-map previews, and they are not interchangeable.
+//
+// The thumbnail is a 128px square: the map's minimap texture, which the engine
+// stores squashed to a square whatever the map's real shape. The override is a
+// 1024px JPEG at the map's true aspect ratio. The override is preferred
+// wherever it exists — it is both sharper and correctly shaped — and the
+// thumbnail is the fallback for maps that lack one.
+const (
+	thumbnailPrefix = "minimapthumbnail/"
+	overridePrefix  = "minimapoverride/"
+)
 
 // maxAssetSize caps how much is read out of the pool for one asset. Previews
 // are tens of kilobytes; this stops a corrupt index entry from being read into
@@ -43,9 +52,17 @@ var ErrNotFound = errors.New("asset not found in game files")
 type Library struct {
 	dataDir string
 
-	once   sync.Once
-	err    error
-	thumbs map[string]string // preview file name -> MD5 hex
+	once sync.Once
+	err  error
+	// Both are keyed by the map's normalised base name, without extension.
+	thumbs    map[string]string // -> MD5 hex of the 128px square PNG
+	overrides map[string]string // -> MD5 hex of the full-size JPEG
+}
+
+// Preview is a map image and the content type to serve it as.
+type Preview struct {
+	Data        []byte
+	ContentType string
 }
 
 // New returns a Library rooted at a game data directory — the folder holding
@@ -68,9 +85,13 @@ func DataDirForDemos(demosPath string) string {
 // Available reports whether previews can be served at all.
 func (l *Library) Available() bool { return l != nil && l.dataDir != "" }
 
-// MapPreview returns the PNG preview for a map, as named in a replay's start
-// script (for example "Rosetta 1.4.4").
-func (l *Library) MapPreview(mapName string) ([]byte, error) {
+// MapPreview returns a preview for a map, as named in a replay's start script
+// (for example "Rosetta 1.4.4").
+//
+// full selects the large, correctly-proportioned image. It is two hundred
+// times the size of the thumbnail, so the replay list — which draws these at
+// the size of a postage stamp, hundreds at a time — asks for the small one.
+func (l *Library) MapPreview(mapName string, full bool) (*Preview, error) {
 	if !l.Available() {
 		return nil, ErrNotFound
 	}
@@ -79,19 +100,33 @@ func (l *Library) MapPreview(mapName string) ([]byte, error) {
 		return nil, l.err
 	}
 
-	md5hex, ok := l.thumbs[previewFileName(mapName)]
+	key := previewKey(mapName)
+	if full {
+		if md5hex, ok := l.overrides[key]; ok {
+			if data, err := l.readPool(md5hex); err == nil {
+				return &Preview{Data: data, ContentType: "image/jpeg"}, nil
+			}
+			// An override the install never downloaded falls through to the
+			// thumbnail rather than failing the request.
+		}
+	}
+	md5hex, ok := l.thumbs[key]
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return l.readPool(md5hex)
+	data, err := l.readPool(md5hex)
+	if err != nil {
+		return nil, err
+	}
+	return &Preview{Data: data, ContentType: "image/png"}, nil
 }
 
-// previewFileName converts a map's display name to the file name the game
-// stores its preview under: lower-cased with spaces replaced by underscores.
-func previewFileName(mapName string) string {
+// previewKey converts a map's display name to the base name the game stores
+// its previews under: lower-cased with spaces replaced by underscores, and no
+// extension, since the two preview kinds use different ones.
+func previewKey(mapName string) string {
 	name := strings.ToLower(strings.TrimSpace(mapName))
-	name = strings.ReplaceAll(name, " ", "_")
-	return name + ".png"
+	return strings.ReplaceAll(name, " ", "_")
 }
 
 // build indexes every archive in the install, keeping only map previews.
@@ -101,6 +136,7 @@ func previewFileName(mapName string) string {
 // directory iteration order.
 func (l *Library) build() {
 	l.thumbs = map[string]string{}
+	l.overrides = map[string]string{}
 
 	entries, err := os.ReadDir(filepath.Join(l.dataDir, "packages"))
 	if err != nil {
@@ -154,10 +190,19 @@ func (l *Library) indexArchive(path string) error {
 		off += 16 + 4 + 4 // MD5, CRC32, then the big-endian size we do not need
 
 		if idx := strings.LastIndex(name, thumbnailPrefix); idx >= 0 {
-			l.thumbs[strings.ToLower(name[idx+len(thumbnailPrefix):])] = md5hex
+			l.thumbs[baseName(name[idx+len(thumbnailPrefix):])] = md5hex
+		}
+		if idx := strings.LastIndex(name, overridePrefix); idx >= 0 {
+			l.overrides[baseName(name[idx+len(overridePrefix):])] = md5hex
 		}
 	}
 	return nil
+}
+
+// baseName normalises an archive entry's file name to the key both preview
+// maps are indexed by.
+func baseName(fileName string) string {
+	return strings.ToLower(strings.TrimSuffix(fileName, filepath.Ext(fileName)))
 }
 
 // readPool loads and decompresses one content-addressed file.

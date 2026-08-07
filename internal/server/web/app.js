@@ -460,6 +460,15 @@
 
   /* ---------------- Map previews ---------------- */
 
+  /**
+   * The endpoint for a map's picture. full=1 asks for the large,
+   * correctly-proportioned image; the default is the small thumbnail the
+   * replay list draws by the hundred.
+   */
+  function previewUrl(mapName, full = false) {
+    return `/api/maps/${encodeURIComponent(mapName)}/preview${full ? '?full=1' : ''}`;
+  }
+
   /** Builds a preview image that removes itself if the game has no thumbnail. */
   function mapThumb(mapName, sizeClass) {
     if (!state.previews || !mapName) return null;
@@ -467,7 +476,7 @@
     img.className = `map-thumb ${sizeClass}`;
     img.loading = 'lazy';
     img.alt = ''; // decorative: the map name is already in the text
-    img.src = `/api/maps/${encodeURIComponent(mapName)}/preview.png`;
+    img.src = previewUrl(mapName);
     img.addEventListener('error', () => img.remove());
     return img;
   }
@@ -850,10 +859,14 @@
     const row = document.createElement('div');
     row.className = 'detail-header-row';
 
-    const thumb = mapThumb(d.map, 'map-thumb-detail');
-    if (thumb) row.appendChild(thumb);
+    // The map leads the page, with each player's start marked on it where the
+    // map's extent is known. Failing that it falls back to the plain
+    // thumbnail, which is decoration rather than information.
+    const map = startMap(d) || mapThumb(d.map, 'map-thumb-detail');
+    if (map) row.appendChild(map);
 
     const text = document.createElement('div');
+    text.className = 'detail-header-text';
     const title = document.createElement('h2');
     title.className = 'detail-title';
     title.textContent = d.map || d.fileName;
@@ -1019,6 +1032,18 @@
    * Emphasises one series across the chart, its legend and the roster, so
    * hovering any of the three lights up the same player.
    */
+  /**
+   * The chart series a team's line lives in, or null when it has none.
+   *
+   * Which series that is depends on the view: plotting players gives a team
+   * its own line, but only while it is ticked, whereas plotting sides folds it
+   * into its ally team's total.
+   */
+  function seriesIdForTeam(t) {
+    if (state.viewMode === 'ally') return `ally-${t.allyTeamID}`;
+    return state.selectedTeams.has(t.id) ? `team-${t.id}` : null;
+  }
+
   function applyEmphasis(seriesId) {
     const target = seriesId || (state.pinYou ? ownSeriesId() : null);
     if (state.activeChart) state.activeChart.highlight(target);
@@ -1271,6 +1296,124 @@
     wrap.appendChild(table);
     card.appendChild(wrap);
     return card;
+  }
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svg(name, attrs = {}) {
+    const node = document.createElementNS(SVG_NS, name);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    return node;
+  }
+
+  /*
+   * Draws start positions over the map itself.
+   *
+   * This needs the map's true extent, since a start position is a bare world
+   * coordinate and the picture spans the whole map: without knowing that span
+   * there is no way to turn one into the other. The backend supplies it only
+   * when it could be established, so this returns null — and the caller falls
+   * back to the plain thumbnail — whenever it could not.
+   *
+   * The image is stretched to the map's proportions rather than drawn at its
+   * own. For the square 128px thumbnail that is a correction — the engine
+   * stores minimaps squashed to a square — and for the full-size override it
+   * is a no-op, since that one already carries the right shape.
+   */
+  function startMap(d) {
+    if (!d.mapSize || !state.previews || !d.map) return null;
+    const placed = d.teams.filter(t => t.startPos);
+    if (!placed.length) return null;
+
+    const { width: w, height: h } = d.mapSize;
+    const wrap = document.createElement('div');
+    wrap.className = 'start-plot';
+    const view = svg('svg', {
+      viewBox: `0 0 ${w} ${h}`,
+      preserveAspectRatio: 'xMidYMid meet',
+      role: 'img',
+      'aria-label': `Start positions on ${d.map}`,
+    });
+
+    const img = svg('image', {
+      x: 0, y: 0, width: w, height: h,
+      preserveAspectRatio: 'none',
+      class: 'start-map-image',
+    });
+    img.setAttribute('href', previewUrl(d.map, true));
+    view.appendChild(img);
+
+    // Sized from the map's own extent so a dot covers the same fraction of
+    // the picture whatever the map's dimensions are.
+    const scale = Math.max(w, h);
+    const r = scale / 70;
+    for (const t of placed) {
+      if (t.isYou) {
+        view.appendChild(svg('circle', {
+          cx: t.startPos.x, cy: t.startPos.z, r: r * 1.8,
+          class: 'start-dot-you',
+        }));
+      }
+      const dot = svg('circle', {
+        cx: t.startPos.x, cy: t.startPos.z, r,
+        fill: colorForTeam(t), class: 'start-dot',
+      });
+      const tip = svg('title');
+      tip.textContent = startTooltip(t);
+      dot.appendChild(tip);
+
+      // Hovering a start picks that player's line out of the chart, the same
+      // way the roster and the legend do. Tagging the dot with the series id
+      // also makes it light up when the emphasis comes from those instead.
+      const seriesId = seriesIdForTeam(t);
+      if (seriesId) {
+        dot.dataset.seriesId = seriesId;
+        dot.addEventListener('mouseenter', () => applyEmphasis(seriesId));
+        dot.addEventListener('mouseleave', () => applyEmphasis(null));
+      }
+      view.appendChild(dot);
+
+      const kind = t.firstFactory && t.firstFactory.kind;
+      if (kind) {
+        const text = svg('text', {
+          x: t.startPos.x, y: t.startPos.z + r * 2.6,
+          'font-size': scale / 40, class: 'start-label',
+        });
+        text.textContent = kind;
+        view.appendChild(text);
+      }
+    }
+
+    wrap.appendChild(view);
+
+    // Said plainly, because a marker sitting slightly off the spot it should
+    // be on is otherwise indistinguishable from the player having built there.
+    if (d.mapSize.approximate) {
+      const note = document.createElement('div');
+      note.className = 'start-plot-note';
+      note.textContent = 'Map size estimated — positions are approximate';
+      wrap.appendChild(note);
+    }
+    return wrap;
+  }
+
+  /*
+   * What a start's tooltip says. The map shows the kind of factory; the
+   * engine's own name for it and when it was ordered only fit here.
+   */
+  function startTooltip(t) {
+    if (!t.firstFactory) return `${t.name} — no factory`;
+    return `${t.name} — ${t.firstFactory.unit}, ${openingWhen(t.firstFactory)}`;
+  }
+
+  /*
+   * Around half of all openings are queued during start position placement,
+   * before the match clock runs. Those arrive in the first frames and would
+   * otherwise all read as "0:00", which looks like a decode failure rather
+   * than the deliberate opening it is.
+   */
+  function openingWhen(build) {
+    if (!build) return '—';
+    return build.preGame ? 'pre-queued' : Chart.formatTime(build.seconds);
   }
 
   function teamRow(t) {

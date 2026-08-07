@@ -186,6 +186,11 @@ type replayDetail struct {
 	AllyTeams    []detailAlly `json:"allyTeams"`
 	Teams        []detailTeam `json:"teams"`
 	Spectators   []string     `json:"spectators"`
+
+	// MapSize is the map's extent in world units, which is what lets start
+	// positions be drawn on a picture of the map. Absent when it could not be
+	// worked out, in which case the map is shown unannotated.
+	MapSize *demo.MapSize `json:"mapSize,omitempty"`
 }
 
 type detailAlly struct {
@@ -217,12 +222,40 @@ type detailTeam struct {
 	Skill            string `json:"skill"`
 	SkillUncertainty string `json:"skillUncertainty"`
 
+	// StartPos is where this team placed its commander, and FirstFactory the
+	// first factory it ordered. Both come from the demo's packet stream rather
+	// than its statistics, so both are absent for a match that ended before
+	// they happened.
+	StartPos     *demo.Position `json:"startPos,omitempty"`
+	FirstFactory *openingBuild  `json:"firstFactory,omitempty"`
+
 	// Times is this team's sample times in seconds; Series maps a metric key
 	// to values at those times.
 	Times  []float64            `json:"times"`
 	Series map[string][]float64 `json:"series"`
 	// Totals is the end-of-match value per metric.
 	Totals map[string]float64 `json:"totals"`
+}
+
+// openingBuild is a build order flattened for the UI. The decoder keeps a
+// frame counter; the browser wants seconds and the pre-game distinction
+// already made, so it does not need to know the simulation rate.
+type openingBuild struct {
+	Unit string `json:"unit"`
+	// Kind is the sort of factory, in the words players use for them — the
+	// label the map draws under each start.
+	Kind    string  `json:"kind"`
+	Seconds float64 `json:"seconds"`
+	// PreGame marks an order queued during start position placement rather
+	// than made under the clock.
+	PreGame bool `json:"preGame"`
+}
+
+func newOpeningBuild(b *demo.BuildOrder) *openingBuild {
+	if b == nil {
+		return nil
+	}
+	return &openingBuild{Unit: b.Unit, Kind: b.Kind, Seconds: b.Seconds(), PreGame: b.PreGame()}
 }
 
 func newReplayDetail(r *demo.Replay, playerName string) replayDetail {
@@ -239,6 +272,7 @@ func newReplayDetail(r *demo.Replay, playerName string) replayDetail {
 		Format:       matchFormat(r, teamIndex(r)),
 		HasStats:     r.HasStats,
 		Winners:      r.WinningAllyTeams,
+		MapSize:      r.MapSize,
 	}
 	for _, at := range r.AllyTeams {
 		d.AllyTeams = append(d.AllyTeams, detailAlly{ID: at.ID, Won: at.Won, TeamIDs: at.TeamIDs})
@@ -262,6 +296,9 @@ func newReplayDetail(r *demo.Replay, playerName string) replayDetail {
 			Rank:   -1,
 			Series: map[string][]float64{},
 			Totals: map[string]float64{},
+
+			StartPos:     t.StartPos,
+			FirstFactory: newOpeningBuild(t.FirstFactory),
 		}
 		if p, ok := byTeam[t.ID]; ok {
 			dt.APM = p.Stats.APM(float64(r.DurationSeconds))

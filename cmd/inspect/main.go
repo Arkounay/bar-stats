@@ -29,7 +29,17 @@ func main() {
 	fmt.Printf("map       %s\n", r.Map)
 	fmt.Printf("duration  %s\n", r.Duration())
 	fmt.Printf("hasStats  %v (period %ds)\n", r.HasStats, r.SamplePeriod)
-	fmt.Printf("winners   ally teams %v\n\n", r.WinningAllyTeams)
+	fmt.Printf("winners   ally teams %v\n", r.WinningAllyTeams)
+	fmt.Printf("spawns    %d map start points\n", len(r.MapSpawns))
+	if s := r.MapSize; s != nil {
+		kind := "exact"
+		if s.Approximate {
+			kind = "approximate"
+		}
+		fmt.Printf("map size  %.0f x %.0f (%s)\n\n", s.Width, s.Height, kind)
+	} else {
+		fmt.Printf("map size  unknown\n\n")
+	}
 
 	for _, at := range r.AllyTeams {
 		result := "lost"
@@ -50,10 +60,10 @@ func main() {
 			if n := len(t.Samples); n > 0 {
 				final = t.Samples[n-1]
 			}
-			fmt.Printf("  team %2d %-22s %-7s %-8s %5s  metal %10.0f  energy %12.0f  dmg %10.0f  units %4d/%-4d\n",
+			fmt.Printf("  team %2d %-22s %-7s %-8s %5s  metal %10.0f  energy %12.0f  dmg %10.0f  units %4d/%-4d  %s\n",
 				t.ID, t.Name, t.Side, kind, t.Color,
 				final.MetalProduced, final.EnergyProduced, final.DamageDealt,
-				final.UnitsProduced, final.UnitsDied)
+				final.UnitsProduced, final.UnitsDied, opening(t))
 		}
 	}
 
@@ -64,4 +74,21 @@ func main() {
 			p.Stats.APM(float64(r.DurationSeconds)), p.Stats.MouseClicks)
 	}
 	fmt.Printf("spectators %d\n", len(r.Spectators))
+}
+
+// opening formats a team's start position and opening factory, the two facts
+// recovered from the packet stream rather than the statistics chunks.
+func opening(t *demo.Team) string {
+	start := "start ?"
+	if p := t.StartPos; p != nil {
+		start = fmt.Sprintf("start (%.0f,%.0f)", p.X, p.Z)
+	}
+	if f := t.FirstFactory; f != nil {
+		when := fmt.Sprintf("%.0fs", f.Seconds())
+		if f.PreGame() {
+			when = "pre-game"
+		}
+		return fmt.Sprintf("%s  %s @ %s", start, f.Unit, when)
+	}
+	return start + "  no factory"
 }

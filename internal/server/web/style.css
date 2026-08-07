@@ -574,6 +574,48 @@ tbody tr:hover { background: var(--wash); }
   color: var(--text-secondary);
 }
 
+/*
+ * The map at the head of a replay, with each player's start marked on it. It
+ * leads the page, so it is given real size rather than the 104px the
+ * decorative thumbnail it replaced had — the labels have to be readable. A
+ * tall, narrow map would otherwise scale to an absurd height at that width;
+ * the cap plus preserveAspectRatio letterboxes it instead of stretching it.
+ */
+.start-plot { display: flex; flex-direction: column; gap: 6px; flex: 0 1 440px; min-width: 300px; }
+.start-plot svg { width: 100%; height: auto; max-width: 440px; max-height: 340px; display: block; }
+.start-map-image { border-radius: 4px; }
+.start-dot { stroke: #fff; stroke-width: 0.35%; transition: stroke-width 90ms ease; }
+.start-dot-you { fill: none; stroke: #fff; stroke-width: 0.5%; }
+.start-plot-note { font-size: 11px; color: var(--text-muted); }
+
+/*
+ * A start whose line is the emphasised one, whether the pointer is on the dot
+ * itself or on that player's roster row or legend entry. The ring thickens
+ * rather than the dot growing, so neighbouring starts do not shift about.
+ */
+.start-dot.row-emphasis { stroke-width: 1.1%; }
+
+/*
+ * Labels sit over map imagery of any brightness, so they carry their own dark
+ * halo rather than relying on a theme colour. paint-order draws the stroke
+ * beneath the fill, so the outline never eats into the glyphs.
+ */
+.start-label {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.85);
+  /* In em, because SVG lengths are in map units here — a pixel value would be
+     a few metres of terrain wide and vanish. */
+  stroke-width: 0.16em;
+  paint-order: stroke;
+  text-anchor: middle;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Shrinks beside the map rather than being pushed under it, until the pane is
+   genuinely too narrow for both. */
+.detail-header-text { flex: 1 1 240px; min-width: 0; }
+
 .team-name { display: flex; align-items: center; gap: 8px; }
 /* The in-game colour is shown for recognition only; it never encodes a chart series. */
 .team-color { width: 9px; height: 9px; border-radius: 2px; flex: none; border: 1px solid var(--border); }
@@ -624,7 +666,9 @@ tbody tr:hover { background: var(--wash); }
 
 .replay-item-body { display: flex; gap: 10px; align-items: center; }
 .replay-item-text { flex: 1; min-width: 0; }
-.detail-header-row { display: flex; gap: 16px; align-items: flex-start; }
+/* Wraps so the annotated map keeps its size on a narrow pane rather than
+   squeezing the title into a column. */
+.detail-header-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 
 /* ---------- Result markers ---------- */
 

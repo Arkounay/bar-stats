@@ -20,6 +20,7 @@ func applyScript(r *Replay, script string) {
 
 	r.Map = game.str("mapname")
 	r.Game = game.str("gametype")
+	applyMapSpawns(r, game)
 
 	// Teams must be built before players so a player can be attached to one.
 	teamSections := game.numberedChildren("team")
